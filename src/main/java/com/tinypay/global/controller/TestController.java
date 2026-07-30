@@ -73,7 +73,7 @@ public class TestController {
                     .payerWalletAddress(wallet.getWalletAddress())
                     .receiverWalletAddress("0x0000000000000000000000000000000000000000")
                     .amount(aiRequest.getEstimatedTotalCost())
-                    .paymentStatus(PaymentStatus.SUCCESS)
+                    .paymentStatus(PaymentStatus.COMPLETED)
                     .verificationStatus(VerificationStatus.SUCCESS)
                     .executedAt(LocalDateTime.now())
                     .blockchainNetwork("POLYGON_AMOY")

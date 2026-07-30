@@ -24,19 +24,18 @@ public class PaymentLogService {
                                      BigDecimal amount) {
         // 기존 FAILED 로그가 있으면 삭제 후 새로 저장 (재시도 시 Duplicate Key 방지)
         paymentLogRepository.deleteByRequestAndPaymentStatus(aiRequest, PaymentStatus.FAILED);
-        paymentLogRepository.save(PaymentLog.builder()
+        PaymentLog paymentLog = PaymentLog.builder()
                 .user(user)
                 .request(aiRequest)
                 .wallet(wallet)
                 .orderId(orderId)
-                .txHash("FAILED_" + orderId)
                 .payerWalletAddress(wallet.getWalletAddress())
                 .receiverWalletAddress(receiverWalletAddress)
                 .amount(amount)
-                .paymentStatus(PaymentStatus.FAILED)
-                .verificationStatus(VerificationStatus.FAILED)
                 .executedAt(LocalDateTime.now())
                 .blockchainNetwork(wallet.getBlockchainNetwork())
-                .build());
+                .build();
+        paymentLog.fail("블록체인 결제 실패");
+        paymentLogRepository.save(paymentLog);
     }
 }

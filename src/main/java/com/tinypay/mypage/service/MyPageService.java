@@ -33,15 +33,21 @@ public class MyPageService {
         BudgetPolicy policy = budgetPolicyRepository.findByUser_IdAndDeletedAtIsNull(userId)
                 .orElse(null);
 
-        BigDecimal usedAmount = paymentLogRepository.sumSuccessfulAmountThisMonth(userId, PaymentStatus.SUCCESS);
+        BigDecimal usedAmount = paymentLogRepository
+                .sumSuccessfulAmountThisMonth(userId, PaymentStatus.successfulStatuses());
         BigDecimal limitAmount = policy != null ? policy.getMonthlyLimit() : null;
         BigDecimal usageRate = calculateUsageRate(usedAmount, limitAmount);
 
         List<PaymentLog> recentLogs = paymentLogRepository
-                .findTop3ByUser_IdAndPaymentStatusOrderByExecutedAtDesc(userId, PaymentStatus.SUCCESS);
+                .findTop3ByUser_IdAndPaymentStatusInOrderByExecutedAtDesc(
+                        userId,
+                        PaymentStatus.successfulStatuses()
+                );
 
-        long transactionCount = paymentLogRepository.countSuccessfulThisMonth(userId, PaymentStatus.SUCCESS);
-        BigDecimal averageAmount = paymentLogRepository.averageSuccessfulAmountThisMonth(userId, PaymentStatus.SUCCESS);
+        long transactionCount = paymentLogRepository
+                .countSuccessfulThisMonth(userId, PaymentStatus.successfulStatuses());
+        BigDecimal averageAmount = paymentLogRepository
+                .averageSuccessfulAmountThisMonth(userId, PaymentStatus.successfulStatuses());
 
         return MyPageResponse.builder()
                 .balance(wallet != null ? wallet.getBalance() : null)

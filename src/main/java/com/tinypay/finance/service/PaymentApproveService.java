@@ -43,7 +43,6 @@ public class PaymentApproveService {
     private final WalletRepository walletRepository;
     private final BudgetPolicyRepository budgetPolicyRepository;
     private final PaymentLogRepository paymentLogRepository;
-    private final PaymentLogService paymentLogService;
     private final PaymentIdempotencyService paymentIdempotencyService;
     private final BlockchainService blockchainService;
     private final DifyServiceExecutionService difyServiceExecutionService;
@@ -58,7 +57,7 @@ public class PaymentApproveService {
     private static final int MAX_PASSWORD_FAILURES = 5;
     private static final String PASSWORD_FAIL_KEY_PREFIX = "wallet:password:fail:";
 
-    @Transactional
+    @Transactional(noRollbackFor = CustomException.class)
     public PaymentApproveResponse paymentApprove(Long userId, Long requestId, PaymentApproveRequest request) {
         // 1. AI 요청 조회
         AiRequest aiRequest = aiRequestRepository.findByIdWithLock(requestId)
@@ -70,7 +69,8 @@ public class PaymentApproveService {
         }
 
         // 3. 멱등성 체크 — 이미 성공한 결제면 기존 결과 반환
-        Optional<PaymentLog> existingLog = paymentLogRepository.findByRequestAndPaymentStatus(aiRequest, PaymentStatus.SUCCESS);
+        Optional<PaymentLog> existingLog = paymentLogRepository
+                .findFirstByRequestAndPaymentStatusIn(aiRequest, PaymentStatus.successfulStatuses());
         if (existingLog.isPresent()) {
             PaymentLog log = existingLog.get();
             return PaymentApproveResponse.builder()
@@ -129,7 +129,7 @@ public class PaymentApproveService {
         // 10. 월 한도 확인
         if (policy != null && policy.getMonthlyLimit() != null) {
             BigDecimal monthlySpent = paymentLogRepository
-                    .sumSuccessfulAmountThisMonth(userId, PaymentStatus.SUCCESS);
+                    .sumSuccessfulAmountThisMonth(userId, PaymentStatus.successfulStatuses());
             if (monthlySpent.add(estimatedCost).compareTo(policy.getMonthlyLimit()) > 0) {
                 throw new CustomException(ErrorType.MONTHLY_LIMIT_EXCEEDED);
             }
@@ -166,16 +166,32 @@ public class PaymentApproveService {
             throw new CustomException(ErrorType.IDEMPOTENCY_REQUEST_IN_PROGRESS);
         }
 
-        // 13. 요청 상태 APPROVED로 변경
+        // 13. 결제 요청 기록 생성: REQUESTED
+        paymentLogRepository.deleteByRequestAndPaymentStatus(aiRequest, PaymentStatus.FAILED);
+        String orderId = UUID.randomUUID().toString();
+        LocalDateTime executedAt = LocalDateTime.now();
+        PaymentLog paymentLog = PaymentLog.builder()
+                .user(aiRequest.getUser())
+                .request(aiRequest)
+                .wallet(wallet)
+                .orderId(orderId)
+                .payerWalletAddress(wallet.getWalletAddress())
+                .receiverWalletAddress(receiverWalletAddress)
+                .amount(estimatedCost)
+                .executedAt(executedAt)
+                .blockchainNetwork(wallet.getBlockchainNetwork())
+                .build();
+        paymentLogRepository.save(paymentLog);
+
+        // 14. REQUESTED → APPROVED
+        paymentLog.approve();
         aiRequest.approve();
 
-        // 14. 블록체인 결제 실행
-        String orderId = UUID.randomUUID().toString();
+        // 15. 블록체인 결제 실행
         BigInteger rawAmount = estimatedCost.movePointRight(USDC_DECIMALS).toBigInteger();
 
-        String txHash;
         try {
-            txHash = blockchainService.transferUsdc(
+            String txHash = blockchainService.transferUsdc(
                     orderId,
                     wallet.getWalletAddress(),
                     receiverWalletAddress,
@@ -183,39 +199,33 @@ public class PaymentApproveService {
                     "AI_SERVICE"
             );
 
-            blockchainService.verifyReceipt(txHash, receiverWalletAddress, rawAmount);
+            // APPROVED → PAID
+            paymentLog.markPaid(txHash);
+
+            boolean receiptVerified =
+                    blockchainService.verifyReceipt(txHash, receiverWalletAddress, rawAmount);
+            if (!receiptVerified) {
+                throw new IllegalStateException("블록체인 영수증 검증에 실패했습니다.");
+            }
+
+            // PAID → VERIFIED
+            paymentLog.markVerified();
         } catch (Exception e) {
             log.error("[PaymentApproveService] transferUsdc 실패: walletAddress={}, amount={}, error={}",
                     wallet.getWalletAddress(), estimatedCost, e.getMessage(), e);
-            aiRequest.fail("블록체인 전송 실패: " + e.getMessage());
-            paymentLogService.saveFailedPaymentLog(
-                    aiRequest.getUser(), aiRequest, wallet, orderId, receiverWalletAddress, estimatedCost);
+            String failureReason = "블록체인 결제 실패: " + e.getMessage();
+            paymentLog.fail(failureReason);
+            aiRequest.fail(failureReason);
             paymentIdempotencyService.fail(idempotency.getId());
             throw new CustomException(ErrorType.INTERNAL_SERVER_ERROR);
         }
-        // 15. 이전 실패 기록 삭제 후 새 결제 기록 저장 (재시도 시 Unique 충돌 방지)
-        paymentLogRepository.deleteByRequestAndPaymentStatus(aiRequest, PaymentStatus.FAILED);
-        LocalDateTime executedAt = LocalDateTime.now();
-        PaymentLog paymentLog = PaymentLog.builder()
-                .user(aiRequest.getUser())
-                .request(aiRequest)
-                .wallet(wallet)
-                .orderId(orderId)
-                .txHash(txHash)
-                .payerWalletAddress(wallet.getWalletAddress())
-                .receiverWalletAddress(receiverWalletAddress)
-                .amount(estimatedCost)
-                .paymentStatus(PaymentStatus.SUCCESS)
-                .executedAt(executedAt)
-                .blockchainNetwork(wallet.getBlockchainNetwork())
-                .build();
-        paymentLogRepository.save(paymentLog);
 
-        // 16. 멱등성 처리 완료
-        paymentIdempotencyService.complete(idempotency, paymentLog);
-
-        // 17. 지갑 잔액 차감
+        // 16. 검증 완료 후 지갑 잔액 차감
         wallet.withdraw(estimatedCost);
+
+        // 17. VERIFIED → COMPLETED
+        paymentLog.complete();
+        paymentIdempotencyService.complete(idempotency, paymentLog);
 
         // 18. 요청 상태 업데이트 (APPROVED → EXECUTING)
         aiRequest.startExecution();

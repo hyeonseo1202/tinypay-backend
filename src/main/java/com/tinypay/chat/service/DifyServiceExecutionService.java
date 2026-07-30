@@ -73,7 +73,7 @@ public class DifyServiceExecutionService {
             // 3. Dify 요청 빌드
             ServiceExecutionRequest.PaymentResult paymentResult = new ServiceExecutionRequest.PaymentResult(
                     paymentLog.getId(),
-                    paymentLog.getPaymentStatus() == PaymentStatus.SUCCESS,
+                    paymentLog.getPaymentStatus().isSuccessful(),
                     paymentLog.getAmount(),
                     "USDC",
                     paymentLog.getTxHash(),

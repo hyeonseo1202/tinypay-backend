@@ -8,6 +8,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -37,7 +38,7 @@ public class PaymentLog extends BaseTimeEntity {
     @Column(name = "order_id", nullable = false, unique = true)
     private String orderId;
 
-    @Column(name = "tx_hash", nullable = false, unique = true)
+    @Column(name = "tx_hash", unique = true)
     private String txHash;
 
     @Column(name = "payer_wallet_address", nullable = false)
@@ -63,6 +64,25 @@ public class PaymentLog extends BaseTimeEntity {
     @Column(name = "verified_at")
     private LocalDateTime verifiedAt;
 
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
+
+    @Column(name = "paid_at")
+    private LocalDateTime paidAt;
+
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
+    @Column(name = "failed_at")
+    private LocalDateTime failedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failed_from_status")
+    private PaymentStatus failedFromStatus;
+
+    @Column(name = "failure_reason", length = 1000)
+    private String failureReason;
+
     @Column(name = "blockchain_network", nullable = false)
     private String blockchainNetwork;
 
@@ -80,7 +100,7 @@ public class PaymentLog extends BaseTimeEntity {
         this.payerWalletAddress = payerWalletAddress;
         this.receiverWalletAddress = receiverWalletAddress;
         this.amount = amount == null ? BigDecimal.ZERO.setScale(6) : amount;
-        this.paymentStatus = paymentStatus == null ? PaymentStatus.PENDING : paymentStatus;
+        this.paymentStatus = paymentStatus == null ? PaymentStatus.REQUESTED : paymentStatus;
         this.verificationStatus = verificationStatus == null ? VerificationStatus.PENDING : verificationStatus;
         this.executedAt = executedAt == null ? LocalDateTime.now() : executedAt;
         this.verifiedAt = verifiedAt;
@@ -88,17 +108,48 @@ public class PaymentLog extends BaseTimeEntity {
         this.autoPaymentUsed = autoPaymentUsed != null && autoPaymentUsed;
     }
 
-    public void markPaymentSuccess() {
-        this.paymentStatus = PaymentStatus.SUCCESS;
+    public void approve() {
+        transition(PaymentStatus.REQUESTED, PaymentStatus.APPROVED);
+        this.approvedAt = LocalDateTime.now();
     }
 
-    public void markVerificationSuccess() {
+    public void markPaid(String txHash) {
+        if (!StringUtils.hasText(txHash)) {
+            throw new IllegalArgumentException("결제 트랜잭션 해시가 필요합니다.");
+        }
+        transition(PaymentStatus.APPROVED, PaymentStatus.PAID);
+        this.txHash = txHash;
+        this.paidAt = LocalDateTime.now();
+    }
+
+    public void markVerified() {
+        transition(PaymentStatus.PAID, PaymentStatus.VERIFIED);
         this.verificationStatus = VerificationStatus.SUCCESS;
         this.verifiedAt = LocalDateTime.now();
     }
 
-    public void markVerificationFailed() {
+    public void complete() {
+        transition(PaymentStatus.VERIFIED, PaymentStatus.COMPLETED);
+        this.completedAt = LocalDateTime.now();
+    }
+
+    public void fail(String reason) {
+        if (paymentStatus.isSuccessful() || paymentStatus == PaymentStatus.FAILED) {
+            throw new IllegalStateException("완료되거나 실패한 결제는 실패 상태로 변경할 수 없습니다.");
+        }
+        this.failedFromStatus = this.paymentStatus;
+        this.paymentStatus = PaymentStatus.FAILED;
+        this.failureReason = StringUtils.hasText(reason) ? reason : "알 수 없는 결제 실패";
+        this.failedAt = LocalDateTime.now();
         this.verificationStatus = VerificationStatus.FAILED;
-        this.verifiedAt = LocalDateTime.now();
+    }
+
+    private void transition(PaymentStatus expected, PaymentStatus next) {
+        if (paymentStatus != expected) {
+            throw new IllegalStateException(
+                    "허용되지 않은 결제 상태 전이입니다: " + paymentStatus + " -> " + next
+            );
+        }
+        this.paymentStatus = next;
     }
 }

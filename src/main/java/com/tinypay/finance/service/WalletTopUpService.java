@@ -47,7 +47,7 @@ public class WalletTopUpService {
     @Transactional
     public TopUpResponse topUp(Long userId, Long walletId, TopUpRequest request) {
         // 1. 지갑 조회
-        Wallet wallet = walletRepository.findById(walletId)
+        Wallet wallet = walletRepository.findByIdWithLock(walletId)
                 .orElseThrow(() -> new CustomException(ErrorType.WALLET_NOT_FOUND));
 
         // 2. 소유자 확인
@@ -89,8 +89,8 @@ public class WalletTopUpService {
         }
 
         // 7. 잔액 업데이트
-        BigDecimal newBalance = wallet.getBalance().add(amount);
-        wallet.updateBalance(newBalance);
+        wallet.deposit(amount);
+        BigDecimal newBalance = wallet.getBalance();
 
         // 8. 충전 이력 저장
         ChargeHistory chargeHistory = ChargeHistory.builder()

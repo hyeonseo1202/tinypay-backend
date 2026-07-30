@@ -61,7 +61,7 @@ public class PaymentApproveService {
     @Transactional
     public PaymentApproveResponse paymentApprove(Long userId, Long requestId, PaymentApproveRequest request) {
         // 1. AI 요청 조회
-        AiRequest aiRequest = aiRequestRepository.findById(requestId)
+        AiRequest aiRequest = aiRequestRepository.findByIdWithLock(requestId)
                 .orElseThrow(() -> new CustomException(ErrorType.AI_REQUEST_NOT_FOUND));
 
         // 2. 소유자 확인
@@ -102,7 +102,7 @@ public class PaymentApproveService {
         BigDecimal estimatedCost = request.getEstimatedCost();
 
         // 6. 지갑 조회
-        Wallet wallet = walletRepository.findByUser_Id(userId)
+        Wallet wallet = walletRepository.findByUserIdWithLock(userId)
                 .orElseThrow(() -> new CustomException(ErrorType.WALLET_NOT_FOUND));
 
         // 7. 지갑 상태 확인
@@ -136,7 +136,7 @@ public class PaymentApproveService {
         }
 
         // 11. 잔액 확인
-        if (wallet.getBalance().compareTo(estimatedCost) < 0) {
+        if (!wallet.canWithdraw(estimatedCost)) {
             throw new CustomException(ErrorType.INSUFFICIENT_BALANCE);
         }
 
@@ -215,7 +215,7 @@ public class PaymentApproveService {
         paymentIdempotencyService.complete(idempotency, paymentLog);
 
         // 17. 지갑 잔액 차감
-        wallet.updateBalance(wallet.getBalance().subtract(estimatedCost));
+        wallet.withdraw(estimatedCost);
 
         // 18. 요청 상태 업데이트 (APPROVED → EXECUTING)
         aiRequest.startExecution();

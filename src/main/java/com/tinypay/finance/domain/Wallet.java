@@ -59,8 +59,24 @@ public class Wallet extends BaseTimeEntity {
         this.walletStatus = walletStatus == null ? WalletStatus.ACTIVE : walletStatus;
     }
 
-    public void updateBalance(BigDecimal balance) {
-        this.balance = balance;
+    public boolean canWithdraw(BigDecimal amount) {
+        return amount != null
+                && amount.compareTo(BigDecimal.ZERO) > 0
+                && balance.compareTo(amount) >= 0;
+    }
+
+    public void withdraw(BigDecimal amount) {
+        if (!canWithdraw(amount)) {
+            throw new IllegalStateException("지갑 잔액보다 큰 금액을 차감할 수 없습니다.");
+        }
+        this.balance = this.balance.subtract(amount);
+    }
+
+    public void deposit(BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("충전 금액은 0보다 커야 합니다.");
+        }
+        this.balance = this.balance.add(amount);
     }
 
     public void initializePassword(String hashedPassword) {

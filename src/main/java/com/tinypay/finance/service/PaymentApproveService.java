@@ -17,6 +17,7 @@ import com.tinypay.dify.repository.AiRequestRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,7 @@ public class PaymentApproveService {
     private final BudgetPolicyRepository budgetPolicyRepository;
     private final PaymentLogRepository paymentLogRepository;
     private final PaymentLogService paymentLogService;
+    private final PaymentIdempotencyService paymentIdempotencyService;
     private final BlockchainService blockchainService;
     private final DifyServiceExecutionService difyServiceExecutionService;
     private final StringRedisTemplate stringRedisTemplate;
@@ -138,10 +140,36 @@ public class PaymentApproveService {
             throw new CustomException(ErrorType.INSUFFICIENT_BALANCE);
         }
 
-        // 12. 요청 상태 APPROVED로 변경 (동시 요청 방지 — 이후 재진입 시 상태 체크에서 차단됨)
+        // 12. 멱등성 키 선점 — DB unique 제약으로 하나의 요청만 결제 단계에 진입
+        PaymentIdempotency idempotency;
+        try {
+            idempotency = paymentIdempotencyService.createClaim(
+                    userId,
+                    requestId,
+                    request.getIdempotencyKey(),
+                    estimatedCost
+            );
+        } catch (DataIntegrityViolationException e) {
+            PaymentIdempotency existing = paymentIdempotencyService.getExistingClaim(
+                    userId,
+                    requestId,
+                    request.getIdempotencyKey(),
+                    estimatedCost
+            );
+            if (existing.getStatus() == PaymentIdempotencyStatus.COMPLETED
+                    && existing.getPayment() != null) {
+                return toResponse(aiRequest, existing.getPayment());
+            }
+            if (existing.getStatus() == PaymentIdempotencyStatus.FAILED) {
+                throw new CustomException(ErrorType.IDEMPOTENCY_REQUEST_FAILED);
+            }
+            throw new CustomException(ErrorType.IDEMPOTENCY_REQUEST_IN_PROGRESS);
+        }
+
+        // 13. 요청 상태 APPROVED로 변경
         aiRequest.approve();
 
-        // 13. 블록체인 결제 실행
+        // 14. 블록체인 결제 실행
         String orderId = UUID.randomUUID().toString();
         BigInteger rawAmount = estimatedCost.movePointRight(USDC_DECIMALS).toBigInteger();
 
@@ -162,9 +190,10 @@ public class PaymentApproveService {
             aiRequest.fail("블록체인 전송 실패: " + e.getMessage());
             paymentLogService.saveFailedPaymentLog(
                     aiRequest.getUser(), aiRequest, wallet, orderId, receiverWalletAddress, estimatedCost);
+            paymentIdempotencyService.fail(idempotency.getId());
             throw new CustomException(ErrorType.INTERNAL_SERVER_ERROR);
         }
-        // 14. 이전 실패 기록 삭제 후 새 결제 기록 저장 (재시도 시 Unique 충돌 방지)
+        // 15. 이전 실패 기록 삭제 후 새 결제 기록 저장 (재시도 시 Unique 충돌 방지)
         paymentLogRepository.deleteByRequestAndPaymentStatus(aiRequest, PaymentStatus.FAILED);
         LocalDateTime executedAt = LocalDateTime.now();
         PaymentLog paymentLog = PaymentLog.builder()
@@ -182,13 +211,16 @@ public class PaymentApproveService {
                 .build();
         paymentLogRepository.save(paymentLog);
 
-        // 15. 지갑 잔액 차감
+        // 16. 멱등성 처리 완료
+        paymentIdempotencyService.complete(idempotency, paymentLog);
+
+        // 17. 지갑 잔액 차감
         wallet.updateBalance(wallet.getBalance().subtract(estimatedCost));
 
-        // 16. 요청 상태 업데이트 (APPROVED → EXECUTING)
+        // 18. 요청 상태 업데이트 (APPROVED → EXECUTING)
         aiRequest.startExecution();
 
-        // 17. 트랜잭션 커밋 후 Dify 서비스 실행 비동기 트리거
+        // 19. 트랜잭션 커밋 후 Dify 서비스 실행 비동기 트리거
         final Long aiRequestId = aiRequest.getId();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -197,18 +229,22 @@ public class PaymentApproveService {
             }
         });
 
+        return toResponse(aiRequest, paymentLog);
+    }
+
+    private PaymentApproveResponse toResponse(AiRequest aiRequest, PaymentLog paymentLog) {
         return PaymentApproveResponse.builder()
                 .requestId(aiRequest.getId())
                 .status(aiRequest.getStatus().name())
                 .payment(PaymentApproveResponse.PaymentInfo.builder()
                         .paymentId(paymentLog.getId())
                         .orderId(paymentLog.getOrderId())
-                        .transactionHash(txHash)
-                        .amount(estimatedCost)
-                        .executedAt(executedAt)
+                        .transactionHash(paymentLog.getTxHash())
+                        .amount(paymentLog.getAmount())
+                        .executedAt(paymentLog.getExecutedAt())
                         .build())
                 .wallet(PaymentApproveResponse.WalletInfo.builder()
-                        .balance(wallet.getBalance())
+                        .balance(paymentLog.getWallet().getBalance())
                         .build())
                 .build();
     }

@@ -66,6 +66,9 @@ public enum ErrorType {
     DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다."),
     INVALID_REQUEST_STATUS(HttpStatus.CONFLICT, "승인 가능한 상태의 요청이 아닙니다."),
     CANCEL_NOT_ALLOWED(HttpStatus.CONFLICT, "취소 가능한 상태의 요청이 아닙니다."),
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "동일한 멱등성 키가 다른 결제 요청에 사용되었습니다."),
+    IDEMPOTENCY_REQUEST_IN_PROGRESS(HttpStatus.CONFLICT, "동일한 결제 요청이 처리 중입니다."),
+    IDEMPOTENCY_REQUEST_FAILED(HttpStatus.CONFLICT, "동일한 결제 요청이 이전 처리에서 실패했습니다."),
 
     /**
      * HTTP 429 (Too Many Requests)

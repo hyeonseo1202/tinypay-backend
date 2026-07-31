@@ -4,8 +4,13 @@ import com.tinypay.dify.domain.AiRequest;
 import com.tinypay.finance.domain.PaymentLog;
 import com.tinypay.finance.domain.PaymentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Pageable;
+
+import jakarta.persistence.LockModeType;
 
 import java.math.BigDecimal;
 import java.util.Collection;
@@ -62,5 +67,45 @@ public interface PaymentLogRepository extends JpaRepository<PaymentLog, Long> {
     BigDecimal averageSuccessfulAmountThisMonth(
             @Param("userId") Long userId,
             @Param("statuses") Collection<PaymentStatus> statuses
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT p
+            FROM PaymentLog p
+            WHERE p.txHash IS NOT NULL
+              AND p.paymentStatus IN :paymentStatuses
+              AND (
+                    p.reconciliationStatus IS NULL
+                    OR p.reconciliationStatus IN :reconciliationStatuses
+                  )
+              AND (
+                    p.nextReconciliationAt IS NULL
+                    OR p.nextReconciliationAt <= :now
+                  )
+            ORDER BY p.id
+            """)
+    List<PaymentLog> findReconciliationCandidatesForUpdate(
+            @Param("paymentStatuses") Collection<PaymentStatus> paymentStatuses,
+            @Param("reconciliationStatuses") Collection<com.tinypay.finance.domain.ReconciliationStatus> reconciliationStatuses,
+            @Param("now") java.time.LocalDateTime now,
+            Pageable pageable
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE PaymentLog p
+               SET p.reconciliationStatus = :retryStatus,
+                   p.nextReconciliationAt = :now,
+                   p.reconciliationError = :error
+             WHERE p.reconciliationStatus = :processingStatus
+               AND p.reconciliationStartedAt < :staleBefore
+            """)
+    int resetStaleReconciliations(
+            @Param("processingStatus") com.tinypay.finance.domain.ReconciliationStatus processingStatus,
+            @Param("retryStatus") com.tinypay.finance.domain.ReconciliationStatus retryStatus,
+            @Param("staleBefore") java.time.LocalDateTime staleBefore,
+            @Param("now") java.time.LocalDateTime now,
+            @Param("error") String error
     );
 }

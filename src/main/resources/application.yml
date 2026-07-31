@@ -79,6 +79,16 @@ blockchain:
     price: 30000000000
     limit: 300000
 
+payment:
+  reconciliation:
+    enabled: ${PAYMENT_RECONCILIATION_ENABLED:false}
+    fixed-delay-ms: ${PAYMENT_RECONCILIATION_FIXED_DELAY_MS:60000}
+    initial-delay-ms: ${PAYMENT_RECONCILIATION_INITIAL_DELAY_MS:30000}
+    batch-size: ${PAYMENT_RECONCILIATION_BATCH_SIZE:50}
+    retry-delay-minutes: ${PAYMENT_RECONCILIATION_RETRY_DELAY_MINUTES:5}
+    stale-after-minutes: ${PAYMENT_RECONCILIATION_STALE_AFTER_MINUTES:10}
+    max-attempts: ${PAYMENT_RECONCILIATION_MAX_ATTEMPTS:5}
+
 management:
   endpoints:
     web:

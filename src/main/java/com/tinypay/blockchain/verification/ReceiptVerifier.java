@@ -25,4 +25,14 @@ public interface ReceiptVerifier {
      * @return 검증 결과 객체 (성공/실패 여부, 실패 사유, 실패 단계 등 포함)
      */
     VerificationResult verify(String txHash, String expectedReceiver, BigInteger expectedAmount);
+
+    /**
+     * 이미 처리된 결제를 대사하기 위해 온체인 정보만 다시 검증한다.
+     * 최초 결제 시 수행하는 replay 검사와 사용 처리 등록은 생략한다.
+     */
+    VerificationResult verifyForReconciliation(
+            String txHash,
+            String expectedReceiver,
+            BigInteger expectedAmount
+    );
 }

@@ -83,6 +83,25 @@ public class PaymentLog extends BaseTimeEntity {
     @Column(name = "failure_reason", length = 1000)
     private String failureReason;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reconciliation_status")
+    private ReconciliationStatus reconciliationStatus;
+
+    @Column(name = "reconciliation_attempts", nullable = false)
+    private int reconciliationAttempts;
+
+    @Column(name = "reconciliation_started_at")
+    private LocalDateTime reconciliationStartedAt;
+
+    @Column(name = "last_reconciled_at")
+    private LocalDateTime lastReconciledAt;
+
+    @Column(name = "next_reconciliation_at")
+    private LocalDateTime nextReconciliationAt;
+
+    @Column(name = "reconciliation_error", length = 1000)
+    private String reconciliationError;
+
     @Column(name = "blockchain_network", nullable = false)
     private String blockchainNetwork;
 
@@ -106,6 +125,7 @@ public class PaymentLog extends BaseTimeEntity {
         this.verifiedAt = verifiedAt;
         this.blockchainNetwork = blockchainNetwork == null ? "POLYGON_AMOY" : blockchainNetwork;
         this.autoPaymentUsed = autoPaymentUsed != null && autoPaymentUsed;
+        this.reconciliationStatus = ReconciliationStatus.PENDING;
     }
 
     public void approve() {
@@ -142,6 +162,54 @@ public class PaymentLog extends BaseTimeEntity {
         this.failureReason = StringUtils.hasText(reason) ? reason : "알 수 없는 결제 실패";
         this.failedAt = LocalDateTime.now();
         this.verificationStatus = VerificationStatus.FAILED;
+    }
+
+    public void startReconciliation() {
+        if (!StringUtils.hasText(txHash)) {
+            throw new IllegalStateException("트랜잭션 해시가 없는 결제는 대사할 수 없습니다.");
+        }
+        this.reconciliationStatus = ReconciliationStatus.PROCESSING;
+        this.reconciliationAttempts++;
+        this.reconciliationStartedAt = LocalDateTime.now();
+        this.reconciliationError = null;
+    }
+
+    public void markReconciliationMatched() {
+        requireReconciliationProcessing();
+        this.reconciliationStatus = ReconciliationStatus.MATCHED;
+        this.lastReconciledAt = LocalDateTime.now();
+        this.nextReconciliationAt = null;
+        this.reconciliationError = null;
+    }
+
+    public void markReconciliationMismatched(String detail) {
+        requireReconciliationProcessing();
+        this.reconciliationStatus = ReconciliationStatus.MISMATCHED;
+        this.lastReconciledAt = LocalDateTime.now();
+        this.nextReconciliationAt = null;
+        this.reconciliationError = detail;
+    }
+
+    public void markReconciliationRetry(String detail, LocalDateTime nextAttemptAt) {
+        requireReconciliationProcessing();
+        this.reconciliationStatus = ReconciliationStatus.RETRY_REQUIRED;
+        this.lastReconciledAt = LocalDateTime.now();
+        this.nextReconciliationAt = nextAttemptAt;
+        this.reconciliationError = detail;
+    }
+
+    public void markReconciliationRetryExhausted(String detail) {
+        requireReconciliationProcessing();
+        this.reconciliationStatus = ReconciliationStatus.RETRY_EXHAUSTED;
+        this.lastReconciledAt = LocalDateTime.now();
+        this.nextReconciliationAt = null;
+        this.reconciliationError = detail;
+    }
+
+    private void requireReconciliationProcessing() {
+        if (reconciliationStatus != ReconciliationStatus.PROCESSING) {
+            throw new IllegalStateException("처리 중인 대사만 결과를 기록할 수 있습니다.");
+        }
     }
 
     private void transition(PaymentStatus expected, PaymentStatus next) {

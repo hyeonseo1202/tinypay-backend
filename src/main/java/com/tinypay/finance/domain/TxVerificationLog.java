@@ -56,11 +56,14 @@ public class TxVerificationLog extends BaseTimeEntity {
     @Column(name = "is_official_token")
     private Boolean isOfficialToken;
 
+    @Column(name = "detail", length = 1000)
+    private String detail;
+
     @Column(name = "blockchain_network", nullable = false)
     private String blockchainNetwork;
 
     @Builder
-    public TxVerificationLog(User user, PaymentLog payment, String txHash, TxVerificationStatus verificationStatus, Integer failedAtStep, BigDecimal expectedAmount, BigDecimal actualAmount, String expectedReceiver, String actualReceiver, String tokenAddress, Boolean isOfficialToken, String blockchainNetwork
+    public TxVerificationLog(User user, PaymentLog payment, String txHash, TxVerificationStatus verificationStatus, Integer failedAtStep, BigDecimal expectedAmount, BigDecimal actualAmount, String expectedReceiver, String actualReceiver, String tokenAddress, Boolean isOfficialToken, String detail, String blockchainNetwork
     ) {
         this.user = user;
         this.payment = payment;
@@ -73,6 +76,7 @@ public class TxVerificationLog extends BaseTimeEntity {
         this.actualReceiver = actualReceiver;
         this.tokenAddress = tokenAddress;
         this.isOfficialToken = isOfficialToken;
+        this.detail = detail;
         this.blockchainNetwork = blockchainNetwork == null ? "POLYGON_AMOY" : blockchainNetwork;
     }
 }

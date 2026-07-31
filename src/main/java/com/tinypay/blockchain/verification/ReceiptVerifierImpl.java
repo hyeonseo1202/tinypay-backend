@@ -70,6 +70,34 @@ public class ReceiptVerifierImpl implements ReceiptVerifier {
             return step1;
         }
 
+        VerificationResult onChainResult =
+                verifyOnChain(txHash, expectedReceiver, expectedAmount);
+        if (!onChainResult.isValid()) {
+            return onChainResult;
+        }
+
+        // 모든 단계 통과 시 영수증을 사용됨으로 등록
+        markAsUsed(txHash);
+
+        log.info("[영수증 검증 성공] txHash={}", txHash);
+        return VerificationResult.success();
+    }
+
+    @Override
+    public VerificationResult verifyForReconciliation(
+            String txHash,
+            String expectedReceiver,
+            BigInteger expectedAmount
+    ) {
+        log.info("[대사 영수증 검증 시작] txHash={}", txHash);
+        return verifyOnChain(txHash, expectedReceiver, expectedAmount);
+    }
+
+    private VerificationResult verifyOnChain(
+            String txHash,
+            String expectedReceiver,
+            BigInteger expectedAmount
+    ) {
         // 2단계: 트랜잭션 성공 여부 확인
         VerificationResult step2 = checkTxStatus(txHash);
         if (!step2.isValid()) {
@@ -97,10 +125,6 @@ public class ReceiptVerifierImpl implements ReceiptVerifier {
             return step5;
         }
 
-        // 모든 단계 통과 시 영수증을 사용됨으로 등록
-        markAsUsed(txHash);
-
-        log.info("[영수증 검증 성공] txHash={}", txHash);
         return VerificationResult.success();
     }
 

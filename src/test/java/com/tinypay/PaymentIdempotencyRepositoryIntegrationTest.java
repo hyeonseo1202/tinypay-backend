@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Tag("integration")
 @DataJpaTest(properties = {
-        "spring.datasource.url=jdbc:tc:mysql:8.0.36:///tinypay",
+        "spring.datasource.url=jdbc:tc:mysql:8.0.36:///tinypay_idempotency",
         "spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "spring.jpa.show-sql=false"

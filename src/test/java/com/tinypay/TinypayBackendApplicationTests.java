@@ -6,7 +6,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 @Tag("integration")
 @SpringBootTest(properties = {
-		"spring.datasource.url=jdbc:tc:mysql:8.0.36:///tinypay",
+		"spring.datasource.url=jdbc:tc:mysql:8.0.36:///tinypay_context",
 		"spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
 		"spring.jpa.hibernate.ddl-auto=create-drop",
 		"spring.jpa.show-sql=false",

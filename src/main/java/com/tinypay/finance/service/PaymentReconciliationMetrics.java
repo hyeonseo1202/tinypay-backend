@@ -74,6 +74,16 @@ public class PaymentReconciliationMetrics {
                 .increment(count);
     }
 
+    public void recordOutbox(String result) {
+        Counter.builder("tinypay.payment.reconciliation.outbox")
+                .tag("result", result).register(meterRegistry).increment();
+    }
+
+    public void recordOutboxRecovered(int count) {
+        Counter.builder("tinypay.payment.reconciliation.outbox.stale_recovered")
+                .register(meterRegistry).increment(count);
+    }
+
     public void refreshStatusGauges() {
         for (ReconciliationStatus status : ReconciliationStatus.values()) {
             long count = paymentLogRepository.countByReconciliationStatus(status);

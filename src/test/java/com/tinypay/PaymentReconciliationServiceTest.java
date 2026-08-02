@@ -14,7 +14,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -43,7 +42,7 @@ class PaymentReconciliationServiceTest {
     private PaymentReconciliationMetrics metrics;
 
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private ReconciliationAlertOutboxService outboxService;
 
     private PaymentReconciliationService service;
 
@@ -54,7 +53,7 @@ class PaymentReconciliationServiceTest {
                 txVerificationLogRepository,
                 receiptVerifier,
                 metrics,
-                eventPublisher
+                outboxService
         );
         ReflectionTestUtils.setField(service, "batchSize", 50);
         ReflectionTestUtils.setField(service, "retryDelayMinutes", 5L);
@@ -110,7 +109,7 @@ class PaymentReconciliationServiceTest {
         assertThat(payment.getReconciliationError()).contains("actual=5");
         verify(txVerificationLogRepository).save(any());
         verify(metrics).record(ReconciliationStatus.MISMATCHED);
-        verify(eventPublisher).publishEvent(any(com.tinypay.finance.event.ReconciliationAlertEvent.class));
+        verify(outboxService).enqueue(any(com.tinypay.finance.event.ReconciliationAlertEvent.class));
     }
 
     @Test
@@ -143,7 +142,7 @@ class PaymentReconciliationServiceTest {
                 .isEqualTo(ReconciliationStatus.RETRY_EXHAUSTED);
         assertThat(payment.getNextReconciliationAt()).isNull();
         verify(metrics).record(ReconciliationStatus.RETRY_EXHAUSTED);
-        verify(eventPublisher).publishEvent(any(com.tinypay.finance.event.ReconciliationAlertEvent.class));
+        verify(outboxService).enqueue(any(com.tinypay.finance.event.ReconciliationAlertEvent.class));
     }
 
     private PaymentLog processingPayment() {

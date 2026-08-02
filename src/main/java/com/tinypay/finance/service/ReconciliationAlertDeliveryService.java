@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 
@@ -36,7 +37,7 @@ public class ReconciliationAlertDeliveryService {
     @Value("${payment.reconciliation.alert.stale-after-minutes:10}")
     private long staleAfterMinutes;
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void deliver(ReconciliationAlertEvent event) {
         ReconciliationAlert alert = alertRepository.findByEventKey(event.eventKey())
                 .orElseGet(() -> alertRepository.save(ReconciliationAlert.pending(event)));

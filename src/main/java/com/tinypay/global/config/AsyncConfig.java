@@ -21,14 +21,4 @@ public class AsyncConfig {
         return executor;
     }
 
-    @Bean(name = "reconciliationAlertExecutor")
-    public Executor reconciliationAlertExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(4);
-        executor.setQueueCapacity(100);
-        executor.setThreadNamePrefix("reconciliation-alert-");
-        executor.initialize();
-        return executor;
-    }
 }

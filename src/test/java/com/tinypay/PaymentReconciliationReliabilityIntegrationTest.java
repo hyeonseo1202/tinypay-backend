@@ -58,6 +58,7 @@ class PaymentReconciliationReliabilityIntegrationTest {
     @Autowired WalletRepository walletRepository;
     @Autowired PaymentLogRepository paymentLogRepository;
     @Autowired ReconciliationAlertRepository alertRepository;
+    @Autowired ReconciliationAlertOutboxRepository outboxRepository;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired ApplicationEventPublisher eventPublisher;
     @Autowired RecordingAlertListener recordingAlertListener;
@@ -65,6 +66,10 @@ class PaymentReconciliationReliabilityIntegrationTest {
     @BeforeEach
     void clearRecordedEvents() {
         recordingAlertListener.clear();
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            outboxRepository.deleteAllInBatch();
+            alertRepository.deleteAllInBatch();
+        });
     }
 
     @Test
@@ -164,6 +169,91 @@ class PaymentReconciliationReliabilityIntegrationTest {
     }
 
     @Test
+    void 대사_결과와_Outbox는_같은_트랜잭션으로_커밋된다() {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Long paymentId = transaction.execute(status -> createPayment("outbox-commit").getId());
+
+        transaction.executeWithoutResult(status -> {
+            PaymentLog payment = paymentLogRepository.findById(paymentId).orElseThrow();
+            payment.startReconciliation();
+            payment.markReconciliationMismatched("amount mismatch");
+            outboxRepository.save(ReconciliationAlertOutbox.pending(new ReconciliationAlertEvent(
+                    payment.getId(), payment.getTxHash(), payment.getAmount(),
+                    payment.getReconciliationStatus(), payment.getReconciliationAttempts(),
+                    payment.getReconciliationError())));
+        });
+
+        ReconciliationStatus paymentStatus = transaction.execute(status -> paymentLogRepository.findById(paymentId)
+                .orElseThrow().getReconciliationStatus());
+        Boolean outboxExists = transaction.execute(status -> outboxRepository.findByEventKey(
+                paymentId + ":MISMATCHED:1").isPresent());
+        assertThat(paymentStatus).isEqualTo(ReconciliationStatus.MISMATCHED);
+        assertThat(outboxExists).isTrue();
+    }
+
+    @Test
+    void 대사_트랜잭션이_롤백되면_Outbox도_저장되지_않는다() {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Long paymentId = transaction.execute(status -> createPayment("outbox-rollback").getId());
+
+        transaction.executeWithoutResult(status -> {
+            PaymentLog payment = paymentLogRepository.findById(paymentId).orElseThrow();
+            payment.startReconciliation();
+            payment.markReconciliationMismatched("amount mismatch");
+            outboxRepository.save(ReconciliationAlertOutbox.pending(new ReconciliationAlertEvent(
+                    payment.getId(), payment.getTxHash(), payment.getAmount(),
+                    payment.getReconciliationStatus(), payment.getReconciliationAttempts(),
+                    payment.getReconciliationError())));
+            status.setRollbackOnly();
+        });
+
+        ReconciliationStatus paymentStatus = transaction.execute(status -> paymentLogRepository.findById(paymentId)
+                .orElseThrow().getReconciliationStatus());
+        Boolean outboxExists = transaction.execute(status -> outboxRepository.findByEventKey(
+                paymentId + ":MISMATCHED:1").isPresent());
+        assertThat(paymentStatus).isEqualTo(ReconciliationStatus.PENDING);
+        assertThat(outboxExists).isFalse();
+    }
+
+    @Test
+    void 두_Outbox_작업자가_동시에_조회해도_이벤트는_한번만_선점된다() throws Exception {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Long outboxId = transaction.execute(status -> outboxRepository.save(
+                ReconciliationAlertOutbox.pending(alertEvent(777L))).getId());
+        AtomicInteger claimedCount = new AtomicInteger();
+        CountDownLatch firstClaimed = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> first = executor.submit(() -> transaction.executeWithoutResult(status -> {
+                List<ReconciliationAlertOutbox> claimed = findOutboxCandidates();
+                claimed.forEach(ReconciliationAlertOutbox::startPublishing);
+                claimedCount.addAndGet(claimed.size());
+                firstClaimed.countDown();
+                await(releaseFirst);
+            }));
+            assertThat(firstClaimed.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<?> second = executor.submit(() -> transaction.executeWithoutResult(status -> {
+                List<ReconciliationAlertOutbox> claimed = findOutboxCandidates();
+                claimed.forEach(ReconciliationAlertOutbox::startPublishing);
+                claimedCount.addAndGet(claimed.size());
+            }));
+            releaseFirst.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
+
+        ReconciliationOutboxStatus storedStatus = transaction.execute(status ->
+                outboxRepository.findById(outboxId).orElseThrow().getPublishStatus());
+        assertThat(claimedCount).hasValue(1);
+        assertThat(storedStatus).isEqualTo(ReconciliationOutboxStatus.PROCESSING);
+    }
+
+    @Test
     void 대사_알림_이벤트는_트랜잭션_커밋_이후에만_전달된다() {
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         ReconciliationAlertEvent event = alertEvent();
@@ -203,11 +293,21 @@ class PaymentReconciliationReliabilityIntegrationTest {
         );
     }
 
+    private List<ReconciliationAlertOutbox> findOutboxCandidates() {
+        return outboxRepository.findPublishCandidatesForUpdate(
+                Set.of(ReconciliationOutboxStatus.PENDING, ReconciliationOutboxStatus.FAILED),
+                LocalDateTime.now(), PageRequest.of(0, 10));
+    }
+
     private PaymentLog createPayment() {
+        return createPayment("lock");
+    }
+
+    private PaymentLog createPayment(String suffix) {
         User user = userRepository.save(User.builder()
-                .providerId("reconciliation-lock-user")
-                .email("reconciliation-lock@example.com")
-                .nickname("reconciliation-lock").build());
+                .providerId("reconciliation-" + suffix)
+                .email("reconciliation-" + suffix + "@example.com")
+                .nickname("reconciliation-" + suffix).build());
         ChatSession session = chatSessionRepository.save(ChatSession.builder()
                 .user(user).title("reconciliation").build());
         AiRequest request = aiRequestRepository.save(AiRequest.builder()
@@ -215,12 +315,12 @@ class PaymentReconciliationReliabilityIntegrationTest {
                 .status(AiRequestStatus.COMPLETED)
                 .estimatedTotalCost(new BigDecimal("10.000000")).build());
         Wallet wallet = walletRepository.save(Wallet.builder()
-                .user(user).walletAddress("0x-lock-wallet")
+                .user(user).walletAddress("0x-wallet-" + suffix)
                 .privateKeyEncrypted("encrypted")
                 .balance(new BigDecimal("100.000000")).build());
         return paymentLogRepository.save(PaymentLog.builder()
-                .user(user).request(request).wallet(wallet).orderId("order-lock")
-                .txHash("0x-lock-tx").payerWalletAddress("0x-lock-wallet")
+                .user(user).request(request).wallet(wallet).orderId("order-" + suffix)
+                .txHash("0x-tx-" + suffix).payerWalletAddress("0x-wallet-" + suffix)
                 .receiverWalletAddress("0x-receiver").amount(new BigDecimal("10.000000"))
                 .paymentStatus(PaymentStatus.COMPLETED).verificationStatus(VerificationStatus.SUCCESS)
                 .blockchainNetwork("POLYGON_AMOY").build());

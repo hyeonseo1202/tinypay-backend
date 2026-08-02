@@ -10,7 +10,6 @@ import com.tinypay.finance.repository.TxVerificationLogRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,7 +42,7 @@ public class PaymentReconciliationService {
     private final TxVerificationLogRepository txVerificationLogRepository;
     private final ReceiptVerifier receiptVerifier;
     private final PaymentReconciliationMetrics metrics;
-    private final ApplicationEventPublisher eventPublisher;
+    private final ReconciliationAlertOutboxService outboxService;
 
     @Value("${payment.reconciliation.batch-size:50}")
     private int batchSize;
@@ -114,7 +113,7 @@ public class PaymentReconciliationService {
             } else {
                 payment.markReconciliationMismatched(result.getDetail());
                 metrics.record(ReconciliationStatus.MISMATCHED);
-                publishAlert(payment, result.getDetail());
+                saveAlertOutbox(payment, result.getDetail());
                 log.warn("[PaymentReconciliation] 대사 불일치: paymentId={}, reason={}, detail={}",
                         paymentId, result.getReason(), result.getDetail());
             }
@@ -123,7 +122,7 @@ public class PaymentReconciliationService {
             if (payment.getReconciliationAttempts() >= maxAttempts) {
                 payment.markReconciliationRetryExhausted(detail);
                 metrics.record(ReconciliationStatus.RETRY_EXHAUSTED);
-                publishAlert(payment, detail);
+                saveAlertOutbox(payment, detail);
                 log.error("[PaymentReconciliation] 최대 재시도 초과: paymentId={}, attempts={}",
                         paymentId, payment.getReconciliationAttempts(), e);
             } else {
@@ -156,8 +155,8 @@ public class PaymentReconciliationService {
                 .build());
     }
 
-    private void publishAlert(PaymentLog payment, String detail) {
-        eventPublisher.publishEvent(new ReconciliationAlertEvent(
+    private void saveAlertOutbox(PaymentLog payment, String detail) {
+        outboxService.enqueue(new ReconciliationAlertEvent(
                 payment.getId(), payment.getTxHash(), payment.getAmount(),
                 payment.getReconciliationStatus(), payment.getReconciliationAttempts(), detail
         ));

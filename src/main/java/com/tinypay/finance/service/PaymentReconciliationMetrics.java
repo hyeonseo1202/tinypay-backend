@@ -61,6 +61,19 @@ public class PaymentReconciliationMetrics {
                 .increment();
     }
 
+    public void recordAlertRetry(String result) {
+        Counter.builder("tinypay.payment.reconciliation.alert.retry")
+                .tag("result", result)
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordAlertStaleRecovered(int count) {
+        Counter.builder("tinypay.payment.reconciliation.alert.stale_recovered")
+                .register(meterRegistry)
+                .increment(count);
+    }
+
     public void refreshStatusGauges() {
         for (ReconciliationStatus status : ReconciliationStatus.values()) {
             long count = paymentLogRepository.countByReconciliationStatus(status);

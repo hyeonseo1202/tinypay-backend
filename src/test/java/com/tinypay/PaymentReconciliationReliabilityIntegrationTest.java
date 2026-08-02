@@ -120,6 +120,50 @@ class PaymentReconciliationReliabilityIntegrationTest {
     }
 
     @Test
+    void 두_작업자가_동시에_조회해도_같은_실패_알림은_한번만_선점된다() throws Exception {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Long alertId = transaction.execute(status -> {
+            ReconciliationAlert alert = ReconciliationAlert.pending(alertEvent(999L));
+            alert.startDelivery();
+            alert.markFailed("webhook timeout", LocalDateTime.now().minusSeconds(1));
+            return alertRepository.save(alert).getId();
+        });
+        AtomicInteger claimedCount = new AtomicInteger();
+        CountDownLatch firstClaimed = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> first = executor.submit(() -> transaction.executeWithoutResult(status -> {
+                List<ReconciliationAlert> claimed = findAlertRetryCandidates();
+                claimed.forEach(ReconciliationAlert::startDelivery);
+                claimedCount.addAndGet(claimed.size());
+                firstClaimed.countDown();
+                await(releaseFirst);
+            }));
+            assertThat(firstClaimed.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> second = executor.submit(() -> transaction.executeWithoutResult(status -> {
+                List<ReconciliationAlert> claimed = findAlertRetryCandidates();
+                claimed.forEach(ReconciliationAlert::startDelivery);
+                claimedCount.addAndGet(claimed.size());
+            }));
+            releaseFirst.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+        }
+
+        ReconciliationAlert stored = transaction.execute(status ->
+                alertRepository.findById(alertId).orElseThrow());
+        assertThat(claimedCount).hasValue(1);
+        assertThat(stored.getDeliveryStatus()).isEqualTo(ReconciliationAlertStatus.PROCESSING);
+        assertThat(stored.getDeliveryAttempts()).isEqualTo(2);
+    }
+
+    @Test
     void 대사_알림_이벤트는_트랜잭션_커밋_이후에만_전달된다() {
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         ReconciliationAlertEvent event = alertEvent();
@@ -151,6 +195,14 @@ class PaymentReconciliationReliabilityIntegrationTest {
                 LocalDateTime.now(), PageRequest.of(0, 10));
     }
 
+    private List<ReconciliationAlert> findAlertRetryCandidates() {
+        return alertRepository.findRetryCandidatesForUpdate(
+                ReconciliationAlertStatus.FAILED,
+                LocalDateTime.now(),
+                PageRequest.of(0, 10)
+        );
+    }
+
     private PaymentLog createPayment() {
         User user = userRepository.save(User.builder()
                 .providerId("reconciliation-lock-user")
@@ -175,7 +227,11 @@ class PaymentReconciliationReliabilityIntegrationTest {
     }
 
     private ReconciliationAlertEvent alertEvent() {
-        return new ReconciliationAlertEvent(1L, "0x-event", new BigDecimal("10.000000"),
+        return alertEvent(1L);
+    }
+
+    private ReconciliationAlertEvent alertEvent(Long paymentId) {
+        return new ReconciliationAlertEvent(paymentId, "0x-event-" + paymentId, new BigDecimal("10.000000"),
                 ReconciliationStatus.MISMATCHED, 1, "amount mismatch");
     }
 

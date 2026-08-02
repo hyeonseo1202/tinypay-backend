@@ -7,6 +7,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
+import com.tinypay.finance.event.ReconciliationAlertEvent;
 
 @Getter
 @Entity
@@ -32,9 +34,27 @@ public class ReconciliationAlert extends BaseTimeEntity {
     @Column(name = "reconciliation_attempt", nullable = false, updatable = false)
     private int reconciliationAttempt;
 
+    @Column(name = "tx_hash", length = 100)
+    private String txHash;
+
+    @Column(name = "amount", precision = 18, scale = 6)
+    private BigDecimal amount;
+
+    @Column(name = "alert_detail", length = 1000)
+    private String detail;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "delivery_status", nullable = false)
     private ReconciliationAlertStatus deliveryStatus;
+
+    @Column(name = "delivery_attempts", nullable = false)
+    private int deliveryAttempts;
+
+    @Column(name = "processing_started_at")
+    private LocalDateTime processingStartedAt;
+
+    @Column(name = "next_retry_at")
+    private LocalDateTime nextRetryAt;
 
     @Column(name = "sent_at")
     private LocalDateTime sentAt;
@@ -56,19 +76,51 @@ public class ReconciliationAlert extends BaseTimeEntity {
         return new ReconciliationAlert(eventKey, paymentId, status, attempt);
     }
 
-    public void retry() {
-        this.deliveryStatus = ReconciliationAlertStatus.PENDING;
+    public static ReconciliationAlert pending(ReconciliationAlertEvent event) {
+        ReconciliationAlert alert = new ReconciliationAlert(
+                event.eventKey(), event.paymentId(), event.status(), event.attempt());
+        alert.txHash = event.txHash();
+        alert.amount = event.amount();
+        alert.detail = event.detail();
+        return alert;
+    }
+
+    public void startDelivery() {
+        if (deliveryStatus != ReconciliationAlertStatus.PENDING
+                && deliveryStatus != ReconciliationAlertStatus.FAILED) {
+            throw new IllegalStateException("발송을 시작할 수 없는 알림 상태입니다: " + deliveryStatus);
+        }
+        this.deliveryStatus = ReconciliationAlertStatus.PROCESSING;
+        this.deliveryAttempts++;
+        this.processingStartedAt = LocalDateTime.now();
+        this.nextRetryAt = null;
         this.lastError = null;
     }
 
     public void markSent() {
         this.deliveryStatus = ReconciliationAlertStatus.SENT;
         this.sentAt = LocalDateTime.now();
+        this.processingStartedAt = null;
+        this.nextRetryAt = null;
         this.lastError = null;
     }
 
-    public void markFailed(String error) {
+    public void markFailed(String error, LocalDateTime nextRetryAt) {
         this.deliveryStatus = ReconciliationAlertStatus.FAILED;
+        this.processingStartedAt = null;
+        this.nextRetryAt = nextRetryAt;
         this.lastError = error;
+    }
+
+    public void markExhausted(String error) {
+        this.deliveryStatus = ReconciliationAlertStatus.EXHAUSTED;
+        this.processingStartedAt = null;
+        this.nextRetryAt = null;
+        this.lastError = error;
+    }
+
+    public ReconciliationAlertEvent toEvent() {
+        return new ReconciliationAlertEvent(
+                paymentId, txHash, amount, reconciliationStatus, reconciliationAttempt, detail);
     }
 }

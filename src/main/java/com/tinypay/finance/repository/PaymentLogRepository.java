@@ -3,12 +3,14 @@ package com.tinypay.finance.repository;
 import com.tinypay.dify.domain.AiRequest;
 import com.tinypay.finance.domain.PaymentLog;
 import com.tinypay.finance.domain.PaymentStatus;
+import com.tinypay.finance.domain.ReconciliationStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 
 import jakarta.persistence.LockModeType;
 
@@ -107,5 +109,14 @@ public interface PaymentLogRepository extends JpaRepository<PaymentLog, Long> {
             @Param("staleBefore") java.time.LocalDateTime staleBefore,
             @Param("now") java.time.LocalDateTime now,
             @Param("error") String error
+    );
+
+    long countByReconciliationStatus(ReconciliationStatus status);
+
+    long countByReconciliationStatusIsNull();
+
+    Page<PaymentLog> findByReconciliationStatusInOrderByIdDesc(
+            Collection<ReconciliationStatus> statuses,
+            Pageable pageable
     );
 }

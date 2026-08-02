@@ -89,6 +89,9 @@ payment:
     stale-after-minutes: ${PAYMENT_RECONCILIATION_STALE_AFTER_MINUTES:10}
     max-attempts: ${PAYMENT_RECONCILIATION_MAX_ATTEMPTS:5}
 
+ops:
+  api-key: ${OPS_API_KEY:}
+
 management:
   endpoints:
     web:

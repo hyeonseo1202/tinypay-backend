@@ -48,6 +48,7 @@ public enum ErrorType {
     WALLET_FORBIDDEN(HttpStatus.FORBIDDEN, "해당 지갑에 대한 접근 권한이 없습니다."),
     PHONE_NOT_VERIFIED(HttpStatus.FORBIDDEN, "전화번호 인증이 완료되지 않은 사용자입니다."),
     PAYMENT_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "해당 결제 내역에 접근할 수 없습니다."),
+    OPS_ACCESS_FORBIDDEN(HttpStatus.FORBIDDEN, "운영 관리 API에 접근할 수 없습니다."),
     
     /**
      * HTTP 404 (NOT FOUND)
@@ -69,6 +70,7 @@ public enum ErrorType {
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "동일한 멱등성 키가 다른 결제 요청에 사용되었습니다."),
     IDEMPOTENCY_REQUEST_IN_PROGRESS(HttpStatus.CONFLICT, "동일한 결제 요청이 처리 중입니다."),
     IDEMPOTENCY_REQUEST_FAILED(HttpStatus.CONFLICT, "동일한 결제 요청이 이전 처리에서 실패했습니다."),
+    INVALID_RECONCILIATION_STATUS(HttpStatus.CONFLICT, "현재 상태에서는 대사를 수동 재시도할 수 없습니다."),
 
     /**
      * HTTP 429 (Too Many Requests)

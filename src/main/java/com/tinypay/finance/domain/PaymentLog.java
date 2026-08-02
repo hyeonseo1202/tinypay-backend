@@ -206,6 +206,19 @@ public class PaymentLog extends BaseTimeEntity {
         this.reconciliationError = detail;
     }
 
+    public void requestManualReconciliation() {
+        if (reconciliationStatus != ReconciliationStatus.MISMATCHED
+                && reconciliationStatus != ReconciliationStatus.RETRY_EXHAUSTED
+                && reconciliationStatus != ReconciliationStatus.RETRY_REQUIRED) {
+            throw new IllegalStateException("수동 재시도를 요청할 수 없는 대사 상태입니다: " + reconciliationStatus);
+        }
+        this.reconciliationStatus = ReconciliationStatus.PENDING;
+        this.reconciliationAttempts = 0;
+        this.reconciliationStartedAt = null;
+        this.nextReconciliationAt = null;
+        this.reconciliationError = null;
+    }
+
     private void requireReconciliationProcessing() {
         if (reconciliationStatus != ReconciliationStatus.PROCESSING) {
             throw new IllegalStateException("처리 중인 대사만 결과를 기록할 수 있습니다.");

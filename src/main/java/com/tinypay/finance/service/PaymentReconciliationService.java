@@ -40,6 +40,7 @@ public class PaymentReconciliationService {
     private final PaymentLogRepository paymentLogRepository;
     private final TxVerificationLogRepository txVerificationLogRepository;
     private final ReceiptVerifier receiptVerifier;
+    private final PaymentReconciliationMetrics metrics;
 
     @Value("${payment.reconciliation.batch-size:50}")
     private int batchSize;
@@ -104,10 +105,12 @@ public class PaymentReconciliationService {
             saveVerificationLog(payment, result);
             if (result.isValid()) {
                 payment.markReconciliationMatched();
+                metrics.record(ReconciliationStatus.MATCHED);
                 log.info("[PaymentReconciliation] 대사 일치: paymentId={}, txHash={}",
                         paymentId, payment.getTxHash());
             } else {
                 payment.markReconciliationMismatched(result.getDetail());
+                metrics.record(ReconciliationStatus.MISMATCHED);
                 log.warn("[PaymentReconciliation] 대사 불일치: paymentId={}, reason={}, detail={}",
                         paymentId, result.getReason(), result.getDetail());
             }
@@ -115,6 +118,7 @@ public class PaymentReconciliationService {
             String detail = "대사 중 외부 시스템 오류: " + e.getMessage();
             if (payment.getReconciliationAttempts() >= maxAttempts) {
                 payment.markReconciliationRetryExhausted(detail);
+                metrics.record(ReconciliationStatus.RETRY_EXHAUSTED);
                 log.error("[PaymentReconciliation] 최대 재시도 초과: paymentId={}, attempts={}",
                         paymentId, payment.getReconciliationAttempts(), e);
             } else {
@@ -124,6 +128,7 @@ public class PaymentReconciliationService {
                         detail,
                         LocalDateTime.now().plus(retryDelay)
                 );
+                metrics.record(ReconciliationStatus.RETRY_REQUIRED);
                 log.warn("[PaymentReconciliation] 재시도 예약: paymentId={}, attempts={}, delay={}",
                         paymentId, payment.getReconciliationAttempts(), retryDelay, e);
             }

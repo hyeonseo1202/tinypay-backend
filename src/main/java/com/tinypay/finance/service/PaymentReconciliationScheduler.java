@@ -18,21 +18,26 @@ import java.util.List;
 public class PaymentReconciliationScheduler {
 
     private final PaymentReconciliationService paymentReconciliationService;
+    private final PaymentReconciliationMetrics metrics;
 
     @Scheduled(
             fixedDelayString = "${payment.reconciliation.fixed-delay-ms:60000}",
             initialDelayString = "${payment.reconciliation.initial-delay-ms:30000}"
     )
     public void reconcilePayments() {
-        List<Long> paymentIds = paymentReconciliationService.claimBatch();
-        if (paymentIds.isEmpty()) {
-            return;
-        }
+        try {
+            List<Long> paymentIds = paymentReconciliationService.claimBatch();
+            if (paymentIds.isEmpty()) {
+                return;
+            }
 
-        log.info("[PaymentReconciliation] 대사 배치 시작: count={}", paymentIds.size());
-        for (Long paymentId : paymentIds) {
-            paymentReconciliationService.reconcileOne(paymentId);
+            log.info("[PaymentReconciliation] 대사 배치 시작: count={}", paymentIds.size());
+            for (Long paymentId : paymentIds) {
+                paymentReconciliationService.reconcileOne(paymentId);
+            }
+            log.info("[PaymentReconciliation] 대사 배치 종료: count={}", paymentIds.size());
+        } finally {
+            metrics.refreshStatusGauges();
         }
-        log.info("[PaymentReconciliation] 대사 배치 종료: count={}", paymentIds.size());
     }
 }

@@ -38,6 +38,9 @@ class PaymentReconciliationServiceTest {
     @Mock
     private ReceiptVerifier receiptVerifier;
 
+    @Mock
+    private PaymentReconciliationMetrics metrics;
+
     private PaymentReconciliationService service;
 
     @BeforeEach
@@ -45,7 +48,8 @@ class PaymentReconciliationServiceTest {
         service = new PaymentReconciliationService(
                 paymentLogRepository,
                 txVerificationLogRepository,
-                receiptVerifier
+                receiptVerifier,
+                metrics
         );
         ReflectionTestUtils.setField(service, "batchSize", 50);
         ReflectionTestUtils.setField(service, "retryDelayMinutes", 5L);
@@ -82,6 +86,7 @@ class PaymentReconciliationServiceTest {
         assertThat(payment.getReconciliationStatus()).isEqualTo(ReconciliationStatus.MATCHED);
         assertThat(payment.getLastReconciledAt()).isNotNull();
         verify(txVerificationLogRepository).save(any());
+        verify(metrics).record(ReconciliationStatus.MATCHED);
     }
 
     @Test
@@ -99,6 +104,7 @@ class PaymentReconciliationServiceTest {
         assertThat(payment.getReconciliationStatus()).isEqualTo(ReconciliationStatus.MISMATCHED);
         assertThat(payment.getReconciliationError()).contains("actual=5");
         verify(txVerificationLogRepository).save(any());
+        verify(metrics).record(ReconciliationStatus.MISMATCHED);
     }
 
     @Test
@@ -114,6 +120,7 @@ class PaymentReconciliationServiceTest {
         assertThat(payment.getNextReconciliationAt()).isAfter(LocalDateTime.now());
         assertThat(payment.getReconciliationError()).contains("RPC timeout");
         verify(txVerificationLogRepository, never()).save(any());
+        verify(metrics).record(ReconciliationStatus.RETRY_REQUIRED);
     }
 
     @Test
@@ -129,6 +136,7 @@ class PaymentReconciliationServiceTest {
         assertThat(payment.getReconciliationStatus())
                 .isEqualTo(ReconciliationStatus.RETRY_EXHAUSTED);
         assertThat(payment.getNextReconciliationAt()).isNull();
+        verify(metrics).record(ReconciliationStatus.RETRY_EXHAUSTED);
     }
 
     private PaymentLog processingPayment() {

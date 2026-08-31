@@ -24,4 +24,8 @@ public enum PaymentStatus {
     public static Set<PaymentStatus> successfulStatuses() {
         return Set.of(COMPLETED, SUCCESS);
     }
+
+    public static Set<PaymentStatus> budgetCommittedStatuses() {
+        return Set.of(APPROVED, PAID, VERIFIED, COMPLETED, SUCCESS);
+    }
 }

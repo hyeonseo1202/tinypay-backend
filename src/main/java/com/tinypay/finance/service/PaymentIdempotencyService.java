@@ -54,6 +54,15 @@ public class PaymentIdempotencyService {
         paymentIdempotencyRepository.save(idempotency);
     }
 
+    @Transactional
+    public void complete(Long idempotencyId, PaymentLog payment) {
+        PaymentIdempotency idempotency = paymentIdempotencyRepository.findById(idempotencyId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "멱등성 처리 정보를 찾을 수 없습니다: " + idempotencyId
+                ));
+        idempotency.complete(payment);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void fail(Long idempotencyId) {
         paymentIdempotencyRepository.findById(idempotencyId)

@@ -35,6 +35,10 @@ public interface PaymentLogRepository extends JpaRepository<PaymentLog, Long> {
 
     Optional<PaymentLog> findByRequestAndPaymentStatus(AiRequest request, PaymentStatus status);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM PaymentLog p WHERE p.id = :id")
+    Optional<PaymentLog> findByIdWithLock(@Param("id") Long id);
+
     Optional<PaymentLog> findFirstByRequestAndPaymentStatusIn(
             AiRequest request,
             Collection<PaymentStatus> statuses

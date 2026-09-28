@@ -63,6 +63,13 @@ public class ChatMessageService {
                 || ((request.content() == null || request.content().isBlank()) && request.fileId() == null)) {
             throw new CustomException(ErrorType.REQUEST_VALIDATION_EXCEPTION);
         }
+        if (request.content() != null
+                && request.content().length() > CreateChatMessageRequest.MAX_CONTENT_LENGTH) {
+            throw new CustomException(ErrorType.REQUEST_VALIDATION_EXCEPTION);
+        }
+
+        // DB 저장과 비동기 작업 등록 전에 즉시 차단한다.
+        chatAnalysisService.validateCurrentMessage(userId, request.content());
 
         // 2. 세션 확인
         ChatSession chatSession = chatSessionRepository.findByIdAndUserId(sessionId, userId)

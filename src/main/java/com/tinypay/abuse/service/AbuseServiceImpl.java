@@ -9,6 +9,7 @@ import com.tinypay.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -26,7 +27,7 @@ public class AbuseServiceImpl implements AbuseService {
     private final AbuseLogRepository abuseLogRepository;
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(Long userId, AbuseType type, AbuseActionType action, String detail) {
         User user = (userId != null)
                 ? userRepository.findById(userId).orElse(null)
@@ -46,7 +47,7 @@ public class AbuseServiceImpl implements AbuseService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordRateLimitViolation(Long userId, String detail) {
         record(userId, AbuseType.RATE_LIMIT_EXCEEDED, AbuseActionType.BLOCKED, detail);
     }

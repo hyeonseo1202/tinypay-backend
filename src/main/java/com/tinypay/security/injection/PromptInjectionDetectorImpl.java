@@ -3,6 +3,7 @@ package com.tinypay.security.injection;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -18,8 +19,9 @@ import java.util.stream.Collectors;
 @Component
 public class PromptInjectionDetectorImpl implements PromptInjectionDetector {
 
-    /** 메시지 최대 길이. 초과 시 잘라서 검사 (ReDoS 방지) */
-    private static final int MAX_MESSAGE_LENGTH = 10_000;
+    /** 정규식 한 번에 검사할 최대 길이와 경계 공격을 잡기 위한 중첩 길이 */
+    private static final int SCAN_CHUNK_LENGTH = 10_000;
+    private static final int SCAN_OVERLAP_LENGTH = 256;
 
     @Override
     public DetectionResult detect(String message) {
@@ -30,11 +32,11 @@ public class PromptInjectionDetectorImpl implements PromptInjectionDetector {
             return DetectionResult.safe();
         }
 
-        String target = truncateIfTooLong(message);
+        String target = normalize(message);
 
         List<DetectionRule> matched = new ArrayList<>();
         for (DetectionRule rule : DetectionRule.values()) {
-            if (rule.getPattern().matcher(target).find()) {
+            if (matchesAnyChunk(rule, target)) {
                 matched.add(rule);
             }
         }
@@ -63,12 +65,27 @@ public class PromptInjectionDetectorImpl implements PromptInjectionDetector {
                 .build();
     }
 
-    private String truncateIfTooLong(String message) {
-        if (message.length() <= MAX_MESSAGE_LENGTH) {
-            return message;
+    private String normalize(String message) {
+        String normalized = Normalizer.normalize(message, Normalizer.Form.NFKC);
+        StringBuilder result = new StringBuilder(normalized.length());
+        normalized.codePoints()
+                .filter(codePoint -> Character.getType(codePoint) != Character.FORMAT)
+                .forEach(result::appendCodePoint);
+        return result.toString();
+    }
+
+    private boolean matchesAnyChunk(DetectionRule rule, String message) {
+        if (message.length() <= SCAN_CHUNK_LENGTH) {
+            return rule.getPattern().matcher(message).find();
         }
-        log.warn("[PromptInjection] message truncated: original={}, truncated={}",
-                message.length(), MAX_MESSAGE_LENGTH);
-        return message.substring(0, MAX_MESSAGE_LENGTH);
+
+        int step = SCAN_CHUNK_LENGTH - SCAN_OVERLAP_LENGTH;
+        for (int start = 0; start < message.length(); start += step) {
+            int end = Math.min(start + SCAN_CHUNK_LENGTH, message.length());
+            if (rule.getPattern().matcher(message.substring(start, end)).find()) {
+                return true;
+            }
+        }
+        return false;
     }
 }

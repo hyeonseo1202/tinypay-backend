@@ -14,19 +14,19 @@ public enum DetectionRule {
     // ===== 일반 LLM 인젝션 =====
 
     IGNORE_INSTRUCTIONS(
-            "(이전\\s*지시(사항)?\\s*무시|위의?\\s*명령\\s*무시|ignore\\s+(previous|prior|above)\\s+instructions?)",
+            "(이전[\\s\\p{P}\\p{S}]*(지시(사항)?|명령)[\\s\\p{P}\\p{S}]*무시|위의?[\\s\\p{P}\\p{S}]*(지시(사항)?|명령)[\\s\\p{P}\\p{S}]*무시|ignore[\\s\\p{P}\\p{S}]+(all[\\s\\p{P}\\p{S}]+)?(previous|prior|above)[\\s\\p{P}\\p{S}]+instructions?)",
             Severity.HIGH,
             "시스템 지시 무시 시도"
     ),
 
     SYSTEM_PROMPT_LEAK(
-            "(시스템\\s*프롬프트|너의?\\s*프롬프트\\s*(보여|알려)|system\\s+prompt|reveal\\s+your\\s+prompt)",
+            "(시스템[\\s\\p{P}\\p{S}]*프롬프트|너의?[\\s\\p{P}\\p{S}]*프롬프트[\\s\\p{P}\\p{S}]*(보여|알려|출력)|system[\\s\\p{P}\\p{S}]+prompt|reveal[\\s\\p{P}\\p{S}]+(your|the)[\\s\\p{P}\\p{S}]+(system[\\s\\p{P}\\p{S}]+)?prompt)",
             Severity.HIGH,
             "시스템 프롬프트 추출 시도"
     ),
 
     JAILBREAK_DAN(
-            "(DAN\\s*모드|do\\s+anything\\s+now|jailbreak|탈옥)",
+            "(DAN[\\s\\p{P}\\p{S}]*모드|do[\\s\\p{P}\\p{S}]+anything[\\s\\p{P}\\p{S}]+now|jailbreak|탈옥)",
             Severity.HIGH,
             "Jailbreak 시도 (DAN 등)"
     ),
@@ -55,6 +55,12 @@ public enum DetectionRule {
             "(service_name\\s*:\\s*['\"]|required_services\\s*:\\s*\\[|add\\s+service)",
             Severity.HIGH,
             "서비스 목록 위조 시도"
+    ),
+
+    ROLE_OVERRIDE(
+            "((system|developer)[\\s\\p{P}\\p{S}]*(message|instruction|role)|시스템[\\s\\p{P}\\p{S}]*(메시지|명령|역할)|개발자[\\s\\p{P}\\p{S}]*(메시지|명령|역할))[\\s\\p{P}\\p{S}]*(로|으로|:|=|is|says?)",
+            Severity.HIGH,
+            "시스템 또는 개발자 역할 위조 시도"
     );
 
     private final Pattern pattern;

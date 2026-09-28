@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Arrays;
 import java.util.stream.Collectors;
 
 
@@ -45,7 +46,14 @@ public class ChatAnalysisService {
         log.debug("[ChatAnalysisService] 요청: userId={}, sessionId={}", userId, sessionId);
 
         // ===== 보안: 프롬프트 인젝션 검사 (Dify 호출 전) =====
-        DetectionResult detection = promptInjectionDetector.detect(currentMessage);
+        DetectionResult currentMessageDetection = promptInjectionDetector.detect(currentMessage);
+        String userContext = extractUserContext(context);
+        DetectionResult contextDetection = userContext.isBlank()
+                ? DetectionResult.safe()
+                : promptInjectionDetector.detect(userContext);
+        DetectionResult detection = currentMessageDetection.isDetected()
+                ? currentMessageDetection
+                : contextDetection;
         if (detection.isDetected()) {
             log.warn("[ChatAnalysisService] 프롬프트 인젝션 감지: userId={}, severity={}, reason={}",
                     userId, detection.getSeverity(), detection.getReason());
@@ -66,6 +74,15 @@ public class ChatAnalysisService {
         ChatAnalysisRequest request = ChatAnalysisRequest.of(userId, sessionId, currentMessage, context);
 
         return difyClient.runChatAnalysis(request);
+    }
+
+    private String extractUserContext(String context) {
+        if (context == null || context.isBlank()) {
+            return "";
+        }
+        return Arrays.stream(context.split("\\R(?=User: |Assistant: )"))
+                .filter(block -> block.startsWith("User: "))
+                .collect(Collectors.joining("\n"));
     }
 
     // DB에서 가져온 채팅 메시지 목록을 문자열로 바꾸는 메서드

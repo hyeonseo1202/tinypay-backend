@@ -33,6 +33,7 @@ public enum ErrorType {
     WALLET_LOCKED(HttpStatus.LOCKED, "지갑이 잠겨 있습니다."),
     WALLET_LOCKED_BY_PASSWORD_FAILURE(HttpStatus.LOCKED, "지갑 비밀번호 입력 횟수를 초과하여 지갑이 잠겼습니다."),
     PROMPT_INJECTION_DETECTED(HttpStatus.BAD_REQUEST, "허용되지 않은 요청 패턴이 감지되었습니다."),
+    ATTACHMENT_SECURITY_VIOLATION(HttpStatus.BAD_REQUEST, "첨부 파일 보안 검증에 실패했습니다."),
 
     /**
      * HTTP 401 (UNAUTHORIZED)
@@ -78,6 +79,7 @@ public enum ErrorType {
     VERIFICATION_BLOCKED(HttpStatus.TOO_MANY_REQUESTS, "인증 시도 횟수를 초과했습니다."),
     VERIFICATION_CODE_COOLDOWN(HttpStatus.TOO_MANY_REQUESTS, "인증번호는 1분 후에 재발급할 수 있습니다."),
     VERIFICATION_SEND_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "인증번호 발급 횟수를 초과했습니다. 24시간 후 다시 시도해주세요."),
+    PROMPT_INJECTION_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "반복된 보안 위반으로 채팅 요청이 일시 제한되었습니다."),
 
     /**
      * HTTP 500 (INTERNAL SERVER ERROR)

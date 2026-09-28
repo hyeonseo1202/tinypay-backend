@@ -11,6 +11,8 @@ import com.tinypay.global.exception.CustomException;
 import com.tinypay.global.exception.ErrorType;
 import com.tinypay.security.injection.DetectionResult;
 import com.tinypay.security.injection.PromptInjectionDetector;
+import com.tinypay.security.injection.PromptInjectionMetrics;
+import com.tinypay.security.injection.PromptInjectionRateLimiter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,9 +32,13 @@ public class ChatAnalysisService {
     private final DifyClient difyClient;
     private final PromptInjectionDetector promptInjectionDetector;
     private final AbuseService abuseService;
+    private final PromptInjectionRateLimiter rateLimiter;
+    private final PromptInjectionMetrics metrics;
 
     // 이전 채팅 리스트를 받아서 context를 만든 뒤, analyzeWithContext()를 호출하는 메서드
     public ChatAnalysisResponse analyze(Long userId, Long sessionId, String currentMessage, List<ChatMessage> recentMessages) {
+        rateLimiter.checkAllowed(userId);
+        validateUserMessages(userId, recentMessages);
         String context = buildContextString(recentMessages);
         return analyzeWithContext(userId, sessionId, currentMessage, context);
     }
@@ -40,6 +46,7 @@ public class ChatAnalysisService {
     // 이미 만들어진 context 문자열을 가지고 Dify에게 분석 요청을 보내는 메서드
     public ChatAnalysisResponse analyzeWithContext(Long userId, Long sessionId, String currentMessage, String context) {
         log.debug("[ChatAnalysisService] 요청: userId={}, sessionId={}", userId, sessionId);
+        rateLimiter.checkAllowed(userId);
 
         // ===== 보안: 프롬프트 인젝션 검사 (Dify 호출 전) =====
         DetectionResult currentMessageDetection = promptInjectionDetector.detect(currentMessage);
@@ -50,7 +57,7 @@ public class ChatAnalysisService {
         DetectionResult detection = currentMessageDetection.isDetected()
                 ? currentMessageDetection
                 : contextDetection;
-        blockIfDetected(userId, detection);
+        blockIfDetected(userId, detection, "dify_preflight");
 
         ChatAnalysisRequest request = ChatAnalysisRequest.of(userId, sessionId, currentMessage, context);
 
@@ -58,17 +65,34 @@ public class ChatAnalysisService {
     }
 
     public void validateCurrentMessage(Long userId, String currentMessage) {
+        rateLimiter.checkAllowed(userId);
         if (currentMessage == null || currentMessage.isBlank()) {
             return;
         }
-        blockIfDetected(userId, promptInjectionDetector.detect(currentMessage));
+        blockIfDetected(userId, promptInjectionDetector.detect(currentMessage), "request_preflight");
     }
 
-    private void blockIfDetected(Long userId, DetectionResult detection) {
+    public void validateUserMessages(Long userId, List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        messages.stream()
+                .filter(message -> message.getSenderRole() == com.tinypay.chat.domain.SenderRole.USER)
+                .map(ChatMessage::getContent)
+                .filter(content -> content != null && !content.isBlank())
+                .map(promptInjectionDetector::detect)
+                .filter(DetectionResult::isDetected)
+                .findFirst()
+                .ifPresent(detection -> blockIfDetected(userId, detection, "structured_context"));
+    }
+
+    private void blockIfDetected(Long userId, DetectionResult detection, String stage) {
         if (detection.isDetected()) {
             log.warn("[ChatAnalysisService] 프롬프트 인젝션 감지: userId={}, severity={}, reason={}",
                     userId, detection.getSeverity(), detection.getReason());
 
+            rateLimiter.recordDetection(userId);
+            metrics.recordDetection(detection, stage);
             abuseService.record(
                     userId,
                     AbuseType.PROMPT_INJECTION,

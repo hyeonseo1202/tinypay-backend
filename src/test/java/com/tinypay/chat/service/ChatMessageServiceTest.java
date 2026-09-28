@@ -23,6 +23,7 @@ import com.tinypay.request.dto.ApiItemResponse;
 import com.tinypay.request.dto.GeneratedFileDto;
 import com.tinypay.user.domain.User;
 import com.tinypay.user.repository.UserRepository;
+import com.tinypay.security.attachment.AttachmentSecurityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,6 +56,7 @@ class ChatMessageServiceTest {
     @Mock private ChatAnalysisService chatAnalysisService;
     @Mock private DifyAsyncService difyAsyncService;
     @Mock private UserRepository userRepository;
+    @Mock private AttachmentSecurityService attachmentSecurityService;
 
     private ChatMessageService service;
 
@@ -68,7 +70,8 @@ class ChatMessageServiceTest {
                 aiRequestApiItemRepository,
                 chatAnalysisService,
                 difyAsyncService,
-                userRepository
+                userRepository,
+                attachmentSecurityService
         );
     }
 
@@ -169,6 +172,43 @@ class ChatMessageServiceTest {
         verify(chatAnalysisService, never()).validateCurrentMessage(
                 org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString()
         );
+        verify(chatMessageRepository, never()).save(org.mockito.ArgumentMatchers.any());
+        verify(aiRequestRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void createChatMessage_blocksUnsafeAttachmentBeforeMessagePersistence() {
+        Long userId = 1L;
+        Long sessionId = 10L;
+        User user = user(userId);
+        ChatSession session = session(sessionId, user);
+        FileAttachment file = FileAttachment.builder()
+                .session(session)
+                .fileName("attack.txt")
+                .fileUrl("https://example.com/attack.txt")
+                .fileType("text/plain")
+                .fileSize(100L)
+                .fileHash("hash")
+                .storageKey("uploads/1/file/attack.txt")
+                .build();
+
+        when(chatSessionRepository.findByIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(chatMessageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId))
+                .thenReturn(List.of());
+        when(chatAnalysisService.buildContextString(List.of())).thenReturn("");
+        when(fileAttachmentRepository.findByIdAndSession_Id(50L, sessionId)).thenReturn(Optional.of(file));
+        doThrow(new CustomException(ErrorType.ATTACHMENT_SECURITY_VIOLATION))
+                .when(attachmentSecurityService).validate(userId, file);
+
+        assertThatThrownBy(() -> service.createChatMessage(
+                userId, sessionId, new CreateChatMessageRequest(null, 50L)
+        ))
+                .isInstanceOf(CustomException.class)
+                .satisfies(error -> assertThat(((CustomException) error).getErrorType())
+                        .isEqualTo(ErrorType.ATTACHMENT_SECURITY_VIOLATION));
+
+        verify(fileAttachmentRepository).findByIdAndSession_Id(50L, sessionId);
+        verify(attachmentSecurityService).validate(userId, file);
         verify(chatMessageRepository, never()).save(org.mockito.ArgumentMatchers.any());
         verify(aiRequestRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }

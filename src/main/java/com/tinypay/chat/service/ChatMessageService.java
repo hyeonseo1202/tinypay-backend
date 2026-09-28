@@ -23,6 +23,7 @@ import com.tinypay.request.dto.AiRequestResponseStatus;
 import com.tinypay.request.dto.ApiItemResponse;
 import com.tinypay.request.dto.GeneratedFileDto;
 import com.tinypay.user.repository.UserRepository;
+import com.tinypay.security.attachment.AttachmentSecurityService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -54,6 +55,7 @@ public class ChatMessageService {
     private final ChatAnalysisService chatAnalysisService;
     private final DifyAsyncService difyAsyncService;
     private final UserRepository userRepository;
+    private final AttachmentSecurityService attachmentSecurityService;
 
     @Transactional
     public CreateChatMessageResponse createChatMessage(Long userId, Long sessionId, CreateChatMessageRequest request) {
@@ -77,7 +79,15 @@ public class ChatMessageService {
 
         // 3. context 수집 + 문자열 변환
         List<ChatMessage> recentMessages = getRecentMessagesForContext(sessionId);
+        chatAnalysisService.validateUserMessages(userId, recentMessages);
         String contextString = chatAnalysisService.buildContextString(recentMessages);
+
+        FileAttachment attachment = null;
+        if (request.fileId() != null) {
+            attachment = fileAttachmentRepository.findByIdAndSession_Id(request.fileId(), sessionId)
+                    .orElseThrow(() -> new CustomException(ErrorType.FILE_NOT_FOUND));
+            attachmentSecurityService.validate(userId, attachment);
+        }
 
         // 4. 사용자 메시지 저장
         String content = (request.content() != null && !request.content().isBlank())
@@ -117,10 +127,8 @@ public class ChatMessageService {
         userMessage.connectRequest(aiRequest);
 
         // 6. 파일 첨부가 있는 경우 메시지에 연결
-        if (request.fileId() != null) {
-            FileAttachment file = fileAttachmentRepository.findById(request.fileId())
-                    .orElseThrow(() -> new CustomException(ErrorType.FILE_NOT_FOUND));
-            file.connectMessage(userMessage);
+        if (attachment != null) {
+            attachment.connectMessage(userMessage);
         }
 
         chatMessageRepository.save(userMessage);

@@ -109,6 +109,14 @@ payment:
 ops:
   api-key: ${OPS_API_KEY:}
 
+security:
+  prompt-injection:
+    rate-limit:
+      max-attempts: ${PROMPT_INJECTION_MAX_ATTEMPTS:3}
+      window-minutes: ${PROMPT_INJECTION_WINDOW_MINUTES:10}
+    attachment:
+      max-scan-bytes: ${PROMPT_INJECTION_ATTACHMENT_MAX_SCAN_BYTES:3145728}
+
 management:
   endpoints:
     web:

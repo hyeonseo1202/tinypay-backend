@@ -69,7 +69,8 @@ class ChatMessageMySqlIntegrationTest {
                 aiRequestApiItemRepository,
                 Mockito.mock(ChatAnalysisService.class),
                 Mockito.mock(DifyAsyncService.class),
-                userRepository
+                userRepository,
+                Mockito.mock(com.tinypay.security.attachment.AttachmentSecurityService.class)
         );
 
         User user = userRepository.save(User.builder()

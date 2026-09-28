@@ -10,4 +10,5 @@ public interface FileAttachmentRepository extends JpaRepository<FileAttachment, 
     List<FileAttachment> findBySession_Id(Long sessionId);
     List<FileAttachment> findByMessage_IdIn(List<Long> messageIds);
     Optional<FileAttachment> findByMessage_Id(Long messageId);
+    Optional<FileAttachment> findByIdAndSession_Id(Long id, Long sessionId);
 }
